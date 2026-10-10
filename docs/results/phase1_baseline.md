@@ -1,7 +1,8 @@
 # Phase 1 — baseline engine results
 
 Measured 2026-10-10. Engine `baseline-0.1.0`, dataset `synthetic-v1`, seed 0,
-600 scenarios × 9 domains = 5,400. Reproduce with `python scripts/evaluate_baseline.py`.
+600 scenarios × 9 domains = 5,400. Reproduce with `python scripts/evaluate.py`
+(this script was called `evaluate_baseline.py` at the time).
 
 **These are synthetic results.** They test the engine's mechanics against known
 ground truth. They are not evidence of real-world decision quality.

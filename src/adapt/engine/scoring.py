@@ -11,6 +11,7 @@ outside it would rescale everyone's normalised score; the baseline doesn't model
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Protocol
 
 from adapt.schema import Criterion, Direction, Option
 
@@ -75,6 +76,29 @@ def score_options(
             s.low += part[0]
             s.high += part[1]
     return list(scored.values())
+
+
+class Scorer(Protocol):
+    """Anything that turns feasible options into (interval) scores in [0, 1].
+    The policy never lets a scorer see options that failed a hard limit."""
+
+    version: str
+
+    def __call__(
+        self, options: list[Option], criteria: list[Criterion], weights: dict[str, float]
+    ) -> list[Scored]: ...
+
+
+class BaselineScorer:
+    version = "linear-minmax"
+
+    def __call__(
+        self, options: list[Option], criteria: list[Criterion], weights: dict[str, float]
+    ) -> list[Scored]:
+        return score_options(options, criteria, weights)
+
+
+BASELINE = BaselineScorer()
 
 
 def dominant_option(options: list[Option], criteria: list[Criterion]) -> str | None:

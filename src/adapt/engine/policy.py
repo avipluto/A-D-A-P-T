@@ -1,4 +1,7 @@
-"""Baseline decision policy: recommend, ask a clarifying question, or abstain.
+"""Decision policy: recommend, ask a clarifying question, or abstain.
+
+The scorer is pluggable (linear baseline or a learned model); the rules below
+are the same for every scorer, so no model can bypass a hard limit.
 
 Order of reasoning:
 1. Hard limits first. An option that fails one is excluded, whatever its score.
@@ -16,7 +19,7 @@ from enum import Enum
 from pydantic import BaseModel, Field
 
 from adapt.engine.constraints import Status, check, describe
-from adapt.engine.scoring import Scored, dominant_option, score_options
+from adapt.engine.scoring import BASELINE, Scored, Scorer, dominant_option
 from adapt.schema import DecisionFrame
 
 ENGINE_VERSION = "baseline-0.1.0"
@@ -61,9 +64,10 @@ class DecisionResult(BaseModel):
     assumptions: list[str] = Field(default_factory=list)
     near_tie: bool = False
     engine_version: str = ENGINE_VERSION
+    scorer_version: str = BASELINE.version
 
 
-def decide(frame: DecisionFrame) -> DecisionResult:
+def decide(frame: DecisionFrame, scorer: Scorer = BASELINE) -> DecisionResult:
     labels = {o.id: o.label for o in frame.options}
     assumptions = frame.assumptions()
 
@@ -91,7 +95,7 @@ def decide(frame: DecisionFrame) -> DecisionResult:
         o.id: [ch.constraint.attribute for ch in checks[o.id] if ch.status is Status.UNKNOWN]
         for o in candidates
     }
-    common = dict(excluded=excluded, assumptions=assumptions)
+    common = dict(excluded=excluded, assumptions=assumptions, scorer_version=scorer.version)
 
     if not candidates:
         return DecisionResult(
@@ -144,7 +148,7 @@ def decide(frame: DecisionFrame) -> DecisionResult:
             **common,
         )
 
-    scored = score_options(candidates, frame.criteria, weights)  # type: ignore[arg-type]
+    scored = scorer(candidates, frame.criteria, weights)  # type: ignore[arg-type]
     ranking = [
         RankedOption(
             option_id=s.option_id,
