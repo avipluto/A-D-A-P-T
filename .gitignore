@@ -1,0 +1,19 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+.env
+
+# Data and model outputs live in ADAPT_DATA_DIR (D:/adapt-data), never in this repo.
+data/
+artifacts/
+experiments/runs/
+*.pt
+*.pth
+*.safetensors
+*.sqlite
+
+# Frontend (later phase)
+node_modules/
+dist/
