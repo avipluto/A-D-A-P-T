@@ -22,6 +22,9 @@ class Scored:
     low: float
     high: float
     contributions: dict[str, tuple[float, float]] = field(default_factory=dict)
+    # Unweighted per-criterion value in [0, 1] (low, high). score = Σ ŵ_c · unit_c, which
+    # lets sensitivity analysis vary weights exactly without re-scoring.
+    unit: dict[str, tuple[float, float]] = field(default_factory=dict)
     missing: list[str] = field(default_factory=list)
 
     @property
@@ -63,15 +66,17 @@ def score_options(
         for o in options:
             s = scored[o.id]
             if o.id in vals and degenerate:
-                part = (0.0, w)
+                unit = (0.0, 1.0)
             elif o.id in vals:
                 n = 0.5 if hi == lo else (vals[o.id] - lo) / (hi - lo)
                 if c.direction is Direction.MINIMIZE:
                     n = 1.0 - n
-                part = (w * n, w * n)
+                unit = (n, n)
             else:
-                part = (0.0, w)
+                unit = (0.0, 1.0)
                 s.missing.append(c.attribute)
+            part = (w * unit[0], w * unit[1])
+            s.unit[c.attribute] = unit
             s.contributions[c.attribute] = part
             s.low += part[0]
             s.high += part[1]

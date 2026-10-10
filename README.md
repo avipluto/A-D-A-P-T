@@ -4,12 +4,13 @@ A general-purpose decision-making system that ranks options against a user's own
 goals and constraints, uses cited evidence instead of making up facts, and asks
 or abstains when it doesn't know enough.
 
-Status: **phase 2a done**. Decision-frame schema, a rule-based engine
-(hard limits → weighted scoring → recommend/clarify/abstain), a synthetic
-benchmark across 9 domains, and a small learned preference model (PyTorch) that
-plugs into the same policy. Results:
+Status: **phase 2 done**. Decision-frame schema; a policy that applies hard limits,
+scores options, tests missing values against plausible fills, and reports what
+would flip the result; a synthetic benchmark across 9 domains; and a small learned
+preference model (PyTorch) that plugs into the same policy. Results:
 [phase 1 baseline](docs/results/phase1_baseline.md),
-[phase 2a learned model](docs/results/phase2a_preference_model.md).
+[phase 2a learned model](docs/results/phase2a_preference_model.md),
+[phase 2b missing values and sensitivity](docs/results/phase2b_missing_values.md).
 See also [docs/roadmap.md](docs/roadmap.md), [docs/architecture.md](docs/architecture.md)
 and [docs/decisions.md](docs/decisions.md).
 
@@ -59,7 +60,11 @@ reports to `D:\adapt-data\artifacts\eval`. The baseline is always included:
 
 ```powershell
 D:\adapt-env\Scripts\python.exe scripts/evaluate.py
+D:\adapt-env\Scripts\python.exe scripts/evaluate.py --seed 1 --n-per-domain 2000   # large test set
 ```
+
+Options: `--extension` (plausible-range stretch for missing values, default 2),
+`--give-ranges` (give the engine the true attribute ranges), `--splits val` (for tuning).
 
 ## Learned preference model
 

@@ -76,9 +76,14 @@ def score_one(s: Scenario, decide: Decider) -> dict:
         "violation": bool(rec and violates(s, rec)),
         "missed_question": t.acceptable == ["clarify"] and outcome == "recommend",
         "unnecessary_question": t.preferred == "recommend" and outcome == "clarify",
+        "fragile": r.fragile,
         "ndcg": ndcg([x.option_id for x in r.ranking], gains) if is_complete else None,
         "ndcg_random": random_ndcg(gains) if is_complete else None,
     }
+
+
+def _rate(s: pd.Series) -> float | None:
+    return float(s.mean()) if len(s) else None
 
 
 def summarise(rows: pd.DataFrame) -> dict:
@@ -96,6 +101,10 @@ def summarise(rows: pd.DataFrame) -> dict:
         "ndcg_random": float(complete.ndcg_random.dropna().mean()) if complete.ndcg_random.notna().any() else None,
         "coverage": float(rows.recommended.mean()),
         "error_rate_issued": float((~recs.decision_ok).mean()) if len(recs) else None,
+        # Does "fragile" (small priority change flips it) actually flag riskier recommendations?
+        "fragile_rate": float(recs.fragile.mean()) if len(recs) else None,
+        "error_if_fragile": _rate(~recs[recs.fragile].decision_ok),
+        "error_if_robust": _rate(~recs[~recs.fragile].decision_ok),
         "missed_question_rate": float(must_ask.missed_question.mean()) if len(must_ask) else None,
         "unnecessary_question_rate": float(prefer_rec.unnecessary_question.mean()) if len(prefer_rec) else None,
         "abstain_recall_infeasible": float((infeasible.outcome == "abstain").mean()) if len(infeasible) else None,

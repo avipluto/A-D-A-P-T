@@ -266,6 +266,20 @@ def _value_matters(
     return len(outcomes) > 1
 
 
+_DOMAIN_BY_NAME = {d.name: d for d in DOMAINS}
+
+
+def with_ranges(s: Scenario) -> Scenario:
+    """Copy of the scenario whose criteria carry the domain's real ranges, as if the user
+    or a retrieval step had supplied typical values. Used to measure what that's worth."""
+    spec = {a.name: a for a in _DOMAIN_BY_NAME[s.truth.domain].attrs}
+    criteria = [
+        c.model_copy(update={"plausible_range": (spec[c.attribute].lo, spec[c.attribute].hi)})
+        for c in s.frame.criteria
+    ]
+    return s.model_copy(update={"frame": s.frame.model_copy(update={"criteria": criteria})})
+
+
 def generate(n_per_domain: int = 600, seed: int = 0) -> Iterator[Scenario]:
     rng = np.random.default_rng(seed)
     for domain in DOMAINS:

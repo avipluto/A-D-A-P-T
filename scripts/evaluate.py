@@ -18,9 +18,11 @@ from pathlib import Path
 
 from adapt import config
 from adapt.engine import ENGINE_VERSION, decide
+from adapt.engine.policy import DEFAULT_EXTENSION
 from adapt.engine.scoring import BASELINE
 from adapt.evaluation.metrics import evaluate
 from adapt.synthetic import DATASET_VERSION, generate
+from adapt.synthetic.generator import with_ranges
 
 COLUMNS = [
     ("n", "n", "{:d}"),
@@ -33,8 +35,10 @@ COLUMNS = [
     ("missed_question_rate", "missed_q", "{:.3f}"),
     ("unnecessary_question_rate", "extra_q", "{:.3f}"),
     ("constraint_violations", "violations", "{:d}"),
+    ("fragile_rate", "fragile", "{:.3f}"),
+    ("error_if_fragile", "err|frag", "{:.3f}"),
+    ("error_if_robust", "err|robust", "{:.3f}"),
 ]
-TEST_SPLITS = ("test_seen", "test_unseen_domain")
 
 
 def table(title: str, groups: dict[str, dict], width: int = 22) -> str:
@@ -52,6 +56,10 @@ def main() -> None:
     p.add_argument("--n-per-domain", type=int, default=600)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--detail", action="store_true", help="also print per-kind and per-domain tables")
+    p.add_argument("--extension", type=float, default=DEFAULT_EXTENSION, help="plausible-range stretch for missing values")
+    p.add_argument("--give-ranges", action="store_true", help="give the engine each attribute's real range")
+    p.add_argument("--splits", default="test_seen,test_unseen_domain", help="comma-separated splits to print")
+    p.add_argument("--tag", default="", help="suffix for the report folder name")
     args = p.parse_args()
 
     scorers = [BASELINE]
@@ -67,14 +75,21 @@ def main() -> None:
         for s in scenarios:
             f.write(s.model_dump_json() + "\n")
 
+    if args.give_ranges:
+        scenarios = [with_ranges(s) for s in scenarios]
+    setting = f"ext{args.extension:g}{'-ranges' if args.give_ranges else ''}{args.tag}"
+
     reports = {}
     for scorer in scorers:
         t0 = time.perf_counter()
-        rows, report = evaluate(scenarios, partial(decide, scorer=scorer))
+        rows, report = evaluate(scenarios, partial(decide, scorer=scorer, extension=args.extension))
         ms_per = (time.perf_counter() - t0) * 1000 / len(scenarios)
         reports[scorer.version] = report
 
-        run_dir = config.ARTIFACTS_DIR / "eval" / f"{ENGINE_VERSION}+{scorer.version}-{DATASET_VERSION}-seed{args.seed}"
+        run_dir = (
+            config.ARTIFACTS_DIR / "eval"
+            / f"{ENGINE_VERSION}+{scorer.version}-{DATASET_VERSION}-seed{args.seed}-n{args.n_per_domain}-{setting}"
+        )
         run_dir.mkdir(parents=True, exist_ok=True)
         rows.to_csv(run_dir / "rows.csv", index=False)
         meta = {
@@ -83,6 +98,8 @@ def main() -> None:
             "dataset_version": DATASET_VERSION,
             "seed": args.seed,
             "n_per_domain": args.n_per_domain,
+            "extension": args.extension,
+            "give_ranges": args.give_ranges,
             "ms_per_decision": round(ms_per, 3),
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
@@ -93,7 +110,8 @@ def main() -> None:
             print(table("kind", report["by_kind"]))
             print(table("domain", report["by_domain"]))
 
-    for split in TEST_SPLITS:
+    print(f"\nsetting: {setting}")
+    for split in args.splits.split(","):
         print()
         print(table(split, {v: r["by_split"][split] for v, r in reports.items()}, width=26))
     print(f"\ndataset: {data_path}")

@@ -17,7 +17,7 @@ from typing import Union
 
 from pydantic import BaseModel, Field, HttpUrl, model_validator
 
-SCHEMA_VERSION = "0.1.0"
+SCHEMA_VERSION = "0.2.0"
 
 Scalar = Union[bool, int, float, str]
 
@@ -63,7 +63,16 @@ class Criterion(BaseModel):
     # None means the user has not told us how much this matters. That is a
     # clarification target, not something to silently default.
     weight: float | None = Field(default=None, ge=0)
+    # Realistic (low, high) for this attribute, e.g. from the user or retrieved evidence.
+    # Used to decide whether a missing value could change the outcome.
+    plausible_range: tuple[float, float] | None = None
     provenance: Provenance = Provenance.STATED
+
+    @model_validator(mode="after")
+    def _range_ordered(self) -> Criterion:
+        if self.plausible_range and self.plausible_range[0] > self.plausible_range[1]:
+            raise ValueError("plausible_range must be (low, high)")
+        return self
 
 
 class Operator(str, Enum):

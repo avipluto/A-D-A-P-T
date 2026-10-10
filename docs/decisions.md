@@ -29,6 +29,19 @@ Built after `POST /decision` has a stable response schema (phase 5), so the UI i
 rewritten as the engine changes. FastAPI serves the built files in production; Vite's dev
 server is used during development.
 
+## D5 — Never recommend on an assumed hard limit (2026-10-10)
+
+Plausible-value assumptions may be used to show that *other* options can't win, but
+the recommended option's hard limits must all be known. Assuming them produced a
+real violation in testing.
+
+## D6 — Learned scorer recommended, baseline stays the default in code (2026-10-10)
+
+`pref-v1-s0` beats the linear baseline on top-1 with bootstrap CIs above zero on both
+test splits of the 18,000-scenario benchmark. The engine's default stays the
+dependency-free baseline; deployments (the API in phase 5) load the learned scorer
+and fall back to the baseline if it's unavailable.
+
 ## D4 — Python 3.11 (2026-10-10)
 
 The 3.11 install is healthy and every library supports it. The 3.13 install

@@ -7,9 +7,11 @@ Order of reasoning:
 1. Hard limits first. An option that fails one is excluded, whatever its score.
 2. No priorities (weights) given: recommend only if one option dominates on every
    criterion; otherwise ask how much each criterion matters.
-3. Score with intervals. Recommend the leader only if no other option could still
-   overtake it once the missing values are known. Otherwise ask about exactly the
-   missing values that could change the outcome, not every gap.
+3. Missing values: try plausible values for each (engine/missing.py). Recommend only
+   if the same option wins every time; otherwise ask about exactly the values that
+   changed the winner, not every gap.
+4. Complete information: recommend the top score, and report how far each priority
+   would have to move to change the winner (engine/sensitivity.py).
 """
 
 from __future__ import annotations
@@ -19,12 +21,16 @@ from enum import Enum
 from pydantic import BaseModel, Field
 
 from adapt.engine.constraints import Status, check, describe
-from adapt.engine.scoring import BASELINE, Scored, Scorer, dominant_option
+from adapt.engine.missing import Slot, missing_slots, robust_winners
+from adapt.engine.scoring import BASELINE, Scorer, dominant_option
+from adapt.engine.sensitivity import FRAGILE, Flip, weight_flips
 from adapt.schema import DecisionFrame
 
-ENGINE_VERSION = "baseline-0.1.0"
+ENGINE_VERSION = "policy-0.2.0"
 NEAR_TIE = 0.02  # score gap below which a recommendation is flagged as a near tie
-_EPS = 1e-9
+# How far beyond the known values a missing value is assumed to plausibly lie, in units
+# of their spread. Chosen on the validation split; see docs/results/phase2b_missing_values.md.
+DEFAULT_EXTENSION = 2.0
 
 
 class Outcome(str, Enum):
@@ -63,11 +69,16 @@ class DecisionResult(BaseModel):
     questions: list[Question] = Field(default_factory=list)
     assumptions: list[str] = Field(default_factory=list)
     near_tie: bool = False
+    sensitivity: list[Flip] = Field(default_factory=list)
+    fragile: bool = False  # a small change in priorities would change the recommendation
+    notes: list[str] = Field(default_factory=list)  # assumptions made and what would flip the result
     engine_version: str = ENGINE_VERSION
     scorer_version: str = BASELINE.version
 
 
-def decide(frame: DecisionFrame, scorer: Scorer = BASELINE) -> DecisionResult:
+def decide(
+    frame: DecisionFrame, scorer: Scorer = BASELINE, extension: float = DEFAULT_EXTENSION
+) -> DecisionResult:
     labels = {o.id: o.label for o in frame.options}
     assumptions = frame.assumptions()
 
@@ -148,7 +159,8 @@ def decide(frame: DecisionFrame, scorer: Scorer = BASELINE) -> DecisionResult:
             **common,
         )
 
-    scored = scorer(candidates, frame.criteria, weights)  # type: ignore[arg-type]
+    weights_ = {a: float(w) for a, w in weights.items()}  # all known and positive past this point
+    scored = scorer(candidates, frame.criteria, weights_)
     ranking = [
         RankedOption(
             option_id=s.option_id,
@@ -162,45 +174,75 @@ def decide(frame: DecisionFrame, scorer: Scorer = BASELINE) -> DecisionResult:
     ]
     common["ranking"] = ranking
 
-    known = [s for s in scored if not unknown[s.option_id]]
-    if not known:
+    needed = list(dict.fromkeys([c.attribute for c in frame.criteria] + [c.attribute for c in frame.constraints]))
+    slots = missing_slots(candidates, needed)
+    if slots:
+        fr = robust_winners(
+            candidates, frame.options, frame.criteria, frame.constraints, weights_, scorer, slots, extension
+        )
+        if fr is None or not fr.winners:
+            return DecisionResult(
+                outcome=Outcome.CLARIFY,
+                reason="The best option depends on information that is missing.",
+                questions=_questions(slots if fr is None else fr.deciding, labels),
+                **common,
+            )
+        mid = {s.option_id: s.mid for s in scored}
+        best = max(fr.winners, key=lambda o: mid[o])
+        if unknown[best]:
+            # Never recommend on an *assumed* hard limit: a wrong guess here is a violation.
+            return DecisionResult(
+                outcome=Outcome.CLARIFY,
+                reason=f"{labels[best]} looks best, but whether it meets every hard limit is unknown.",
+                questions=_questions([Slot(best, a) for a in unknown[best]], labels),
+                **common,
+            )
         return DecisionResult(
-            outcome=Outcome.CLARIFY,
-            reason="Every remaining option has a hard limit that can't be checked yet.",
-            questions=_questions(scored, unknown, labels),
+            outcome=Outcome.RECOMMEND,
+            recommended=best,
+            reason=(
+                f"{labels[best]} comes out on top whatever the missing values are, "
+                "within the ranges assumed below."
+            ),
+            notes=[
+                f"Assumed {s.attribute} of {labels[s.option_id]} is between {_fmt(lo)} and {_fmt(hi)}."
+                for s, (lo, hi) in fr.ranges.items()
+            ]
+            + (["Checked each missing value separately (too many combinations to try them all)."] if fr.approximate else []),
             **common,
         )
 
-    leader = max(known, key=lambda s: (s.low, s.high))
-    rivals = [s for s in scored if s.option_id != leader.option_id and s.high > leader.low + _EPS]
-    if rivals:
-        return DecisionResult(
-            outcome=Outcome.CLARIFY,
-            reason="The best option depends on information that is missing.",
-            questions=_questions([leader, *rivals], unknown, labels),
-            **common,
-        )
-
+    leader = max(scored, key=lambda s: s.low)
     runner_up = max((s.high for s in scored if s is not leader), default=None)
+    flips = weight_flips(scored, weights_, leader.option_id)
+    notes = [
+        f"{labels[f.new_leader]} would win if {f.attribute}'s share of importance went from "
+        f"{f.current_weight:.2f} to {f.flip_weight:.2f}."
+        for f in flips[:3]
+    ]
     return DecisionResult(
         outcome=Outcome.RECOMMEND,
         recommended=leader.option_id,
         reason=f"{labels[leader.option_id]} scores highest on your weighted criteria.",
         near_tie=runner_up is not None and leader.low - runner_up < NEAR_TIE,
+        sensitivity=flips,
+        fragile=bool(flips) and flips[0].distance < FRAGILE,
+        notes=notes,
         **common,
     )
 
 
-def _questions(
-    involved: list[Scored], unknown: dict[str, list[str]], labels: dict[str, str]
-) -> list[Question]:
+def _fmt(x: object) -> str:
+    return f"{x:g}" if isinstance(x, float) else str(x)
+
+
+def _questions(slots: list[Slot], labels: dict[str, str]) -> list[Question]:
     """One question per attribute whose value could change the outcome."""
     asked: dict[str, list[str]] = {}
-    for s in involved:
-        for attr in [*s.missing, *unknown[s.option_id]]:
-            ids = asked.setdefault(attr, [])
-            if s.option_id not in ids:
-                ids.append(s.option_id)
+    for s in slots:
+        ids = asked.setdefault(s.attribute, [])
+        if s.option_id not in ids:
+            ids.append(s.option_id)
     return [
         Question(
             attribute=attr,

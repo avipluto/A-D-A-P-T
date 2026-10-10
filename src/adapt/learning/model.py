@@ -106,8 +106,10 @@ class LearnedScorer:
         for oid, attr, start, n in plan:
             w = weights[attr] / total
             vals = g[start : start + n]
-            part = (w * min(vals), w * max(vals))
+            unit = (min(vals), max(vals))
+            part = (w * unit[0], w * unit[1])
             s = scored[oid]
+            s.unit[attr] = unit
             s.contributions[attr] = part
             s.low += part[0]
             s.high += part[1]
