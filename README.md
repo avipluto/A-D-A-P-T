@@ -4,8 +4,10 @@ A general-purpose decision-making system that ranks options against a user's own
 goals and constraints, uses cited evidence instead of making up facts, and asks
 or abstains when it doesn't know enough.
 
-Status: **phase 0**. Only the decision-frame schema exists. See
-[docs/roadmap.md](docs/roadmap.md), [docs/architecture.md](docs/architecture.md)
+Status: **phase 1 done**. Decision-frame schema, a rule-based engine
+(hard limits → weighted scoring → recommend/clarify/abstain) and a synthetic
+benchmark across 9 domains. Results: [docs/results/phase1_baseline.md](docs/results/phase1_baseline.md).
+See also [docs/roadmap.md](docs/roadmap.md), [docs/architecture.md](docs/architecture.md)
 and [docs/decisions.md](docs/decisions.md).
 
 ## Verified machine (2026-10-10)
@@ -41,4 +43,13 @@ python scripts/check_env.py
 
 ```powershell
 python -m pytest
+```
+
+## Baseline benchmark
+
+Generates 5,400 synthetic scenarios into `D:\adapt-data\evaluation` and writes the
+report to `D:\adapt-data\artifacts\eval`:
+
+```powershell
+python scripts/evaluate_baseline.py
 ```
