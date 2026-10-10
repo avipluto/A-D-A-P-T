@@ -92,6 +92,33 @@ def test_parse_json_tolerates_chatter_and_trailing_commas():
         parse_json("no json here")
 
 
+def test_grounding_drops_numbers_not_in_text():
+    from adapt.extraction.grounding import ground
+    from adapt.extraction.schema import XConstraint
+
+    text = "Gym A costs ₹1,800 and Gym B costs $2.5k. Lower cost is better."
+    x = Extraction(
+        options=[
+            XOption(label="Gym A", attributes={"cost": XValue(value=1800), "pool": XValue(value=True)}),
+            XOption(label="Gym B", attributes={"cost": XValue(value=2500), "rating": XValue(value=9)}),
+        ],
+        constraints=[XConstraint(attribute="cost", operator="<=", value=100000)],  # never stated
+    )
+    g, dropped = ground(x, text)
+    assert dropped == 2  # the made-up rating and the made-up limit
+    assert set(g.options[0].attributes) == {"cost", "pool"} and set(g.options[1].attributes) == {"cost"}
+    assert g.constraints == []
+
+
+def test_paraphrased_priority_and_direction_are_normalised():
+    c = XCriterion(attribute="x", direction="lower", priority="nice_to_have")
+    assert (c.direction, c.priority) == ("minimize", "low")
+    assert XCriterion(attribute="x", direction="max", priority="most_important").priority == "high"
+    assert XCriterion(attribute="x", direction="maximize", priority="whatever").priority is None
+    with pytest.raises(ValueError):
+        XCriterion(attribute="x", direction="sideways")
+
+
 def test_extracted_frame_runs_through_policy(scenarios):
     s = first(scenarios, "purchase_electronics")
     r = decide(to_frame(extract(render(s)), s.frame.situation))

@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from typing import Literal, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from adapt.extraction.textgen import LEVEL_WEIGHT
 from adapt.schema import (
@@ -45,10 +45,40 @@ class XOption(BaseModel):
     attributes: dict[str, XValue] = Field(default_factory=dict)
 
 
+_PRIORITY_WORDS = {
+    "high": {"high", "top", "highest", "most important", "most", "critical", "very important", "top priority"},
+    "medium": {"medium", "moderate", "fairly important", "important", "mid"},
+    "low": {"low", "little", "minor", "nice to have", "least important", "a little", "lowest"},
+}
+_DIRECTION_WORDS = {
+    "maximize": {"maximize", "maximise", "max", "higher", "more", "increase", "high"},
+    "minimize": {"minimize", "minimise", "min", "lower", "less", "decrease", "low"},
+}
+
+
+def _canon(word: object, table: dict[str, set[str]]) -> str | None:
+    if word is None:
+        return None
+    w = re.sub(r"[^a-z]+", " ", str(word).lower()).strip()
+    return next((k for k, words in table.items() if w in words), None)
+
+
 class XCriterion(BaseModel):
     attribute: str
     direction: Literal["maximize", "minimize"]
     priority: Literal["high", "medium", "low"] | None = None
+
+    # Small models paraphrase labels ("top", "nice_to_have"). Map ordinary English
+    # importance words; anything else becomes None (= unknown), which the engine asks about.
+    @field_validator("priority", mode="before")
+    @classmethod
+    def _priority(cls, v: object) -> str | None:
+        return _canon(v, _PRIORITY_WORDS)
+
+    @field_validator("direction", mode="before")
+    @classmethod
+    def _direction(cls, v: object) -> object:
+        return _canon(v, _DIRECTION_WORDS) or v  # unknown words still fail validation
 
 
 class XConstraint(BaseModel):

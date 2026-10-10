@@ -146,20 +146,42 @@ def _level_of(weight: float) -> str:
     return {3.0: "high", 2.0: "medium", 1.0: "low"}.get(weight, level(weight))
 
 
-def evaluate_extractor(scenarios: list[Scenario], extractor: Extractor, text_seed: int = 0) -> tuple[pd.DataFrame, dict]:
+def _extract_all(texts: list[str], extractor: Extractor, batch_size: int) -> list[tuple[Extraction | Exception, float]]:
+    """Run the extractor over all texts; uses .batch() when the extractor has one.
+    Returns (result or exception, milliseconds per text)."""
+    out: list[tuple[Extraction | Exception, float]] = []
+    batch = getattr(extractor, "batch", None)
+    step = batch_size if batch else 1
+    for i in range(0, len(texts), step):
+        chunk = texts[i : i + step]
+        t0 = time.perf_counter()
+        if batch:
+            results = batch(chunk)
+        else:
+            results = []
+            for t in chunk:
+                try:
+                    results.append(extractor(t))
+                except Exception as e:  # noqa: BLE001 - an extractor crash scores as a failure
+                    results.append(e)
+        ms = (time.perf_counter() - t0) * 1000 / len(chunk)
+        out += [(r, ms) for r in results]
+    return out
+
+
+def evaluate_extractor(
+    scenarios: list[Scenario], extractor: Extractor, text_seed: int = 0, batch_size: int = 8
+) -> tuple[pd.DataFrame, dict]:
     rows, totals = [], {k: Counts() for k in ("options", "values", "criteria", "constraints")}
     pri_hit = pri_tot = 0
-    for s in scenarios:
-        text = render(s, text_seed)
+    texts = [render(s, text_seed) for s in scenarios]
+    for s, (result, ms) in zip(scenarios, _extract_all(texts, extractor, batch_size)):
         gold = gold_frame(s)
-        t0 = time.perf_counter()
+        failed = isinstance(result, Exception)
         try:
-            x = to_frame(extractor(text), s.frame.situation)
-            failed = False
-        except Exception:  # an extractor that crashes or returns invalid output scores zero
-            x = DecisionFrame(situation=s.frame.situation)
-            failed = True
-        ms = (time.perf_counter() - t0) * 1000
+            x = DecisionFrame(situation=s.frame.situation) if failed else to_frame(result, s.frame.situation)
+        except Exception:  # noqa: BLE001 - output that can't form a valid frame scores zero
+            x, failed = DecisionFrame(situation=s.frame.situation), True
 
         sc = score_fields(x, gold)
         for k, c in sc.counts.items():
