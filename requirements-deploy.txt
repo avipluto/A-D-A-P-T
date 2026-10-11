@@ -1,0 +1,6 @@
+# Runtime only (no PyTorch): what the public server needs. Pinned to the tested versions.
+numpy==2.4.6
+pydantic==2.14.0
+fastapi==0.143.0
+uvicorn==0.54.0
+httpx==0.28.1

@@ -47,33 +47,69 @@ class Services:
         }
 
 
+NUMPY_SCORER = config.REPO_ROOT / "models" / "scorer.npz"
+NUMPY_TAGGER = config.REPO_ROOT / "models" / "tagger.npz"
+
+
+def _first(loaders: list[tuple[str, Callable]], notes: list[str], what: str):
+    """Try each (label, loader) in order; record why earlier ones failed."""
+    errors = []
+    for label, loader in loaders:
+        try:
+            return loader()
+        except Exception as e:  # noqa: BLE001 - any failure means: try the next, and say so
+            errors.append(f"{label}: {type(e).__name__}: {str(e)[:100]}")
+    notes.append(f"{what}: fallback in use ({'; '.join(errors)})")
+    return None
+
+
 def load(scorer_path: Path | None = None, tagger_path: Path | None = None, enable_retrieval: bool = True) -> Services:
+    """ADAPT_RUNTIME=numpy skips PyTorch entirely (deployment); the default tries PyTorch
+    checkpoints first, then the NumPy exports in models/, then baseline / rules."""
     notes: list[str] = []
+    numpy_only = os.environ.get("ADAPT_RUNTIME", "auto") == "numpy"
 
     from adapt.lifecycle.registry import production_scorer
 
-    scorer: Scorer = BASELINE
     sp = Path(os.environ.get("ADAPT_SCORER_CHECKPOINT", scorer_path or production_scorer(DEFAULT_SCORER)))
-    try:
+    snp = Path(os.environ.get("ADAPT_SCORER_NPZ", NUMPY_SCORER))
+
+    def torch_scorer():
         from adapt.learning.model import LearnedScorer
 
-        scorer = LearnedScorer.from_checkpoint(sp)
-    except Exception as e:  # noqa: BLE001 - any failure means: use the baseline and say so
-        notes.append(f"scorer: using linear baseline ({type(e).__name__}: {str(e)[:120]})")
+        return LearnedScorer.from_checkpoint(sp)
+
+    def numpy_scorer():
+        from adapt.inference.numpy_models import NumpyScorer
+
+        return NumpyScorer.from_file(snp)
+
+    loaders = [("numpy", numpy_scorer)] if numpy_only else [("torch", torch_scorer), ("numpy", numpy_scorer)]
+    scorer: Scorer = _first(loaders, notes, "scorer") or BASELINE
 
     from adapt.extraction.postprocess import clean
     from adapt.extraction.rules import extract as rules_extract
 
     tp = Path(os.environ.get("ADAPT_TAGGER_CHECKPOINT", tagger_path or DEFAULT_TAGGER))
-    try:
+    tnp = Path(os.environ.get("ADAPT_TAGGER_NPZ", NUMPY_TAGGER))
+
+    def torch_tagger():
         from adapt.tagger.extractor import TaggerExtractor
 
-        tagger = TaggerExtractor.from_checkpoint(tp)
+        return TaggerExtractor.from_checkpoint(tp)
+
+    def numpy_tagger():
+        from adapt.inference.numpy_models import NumpyTagger
+
+        return NumpyTagger.from_file(tnp)
+
+    loaders = [("numpy", numpy_tagger)] if numpy_only else [("torch", torch_tagger), ("numpy", numpy_tagger)]
+    tagger = _first(loaders, notes, "extractor")
+    if tagger is not None:
         extract = lambda text: clean(tagger(text), text)[0]  # noqa: E731
         extractor_version = f"{tagger.version}+clean"
-    except Exception as e:  # noqa: BLE001
+    else:
         extract, extractor_version = rules_extract, "rules-v1"
-        notes.append(f"extractor: using rules ({type(e).__name__}: {str(e)[:120]})")
 
     provider = None
     if enable_retrieval:

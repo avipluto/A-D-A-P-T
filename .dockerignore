@@ -1,0 +1,7 @@
+# Allow-list: the image only needs the code, the NumPy weights and the runtime requirements.
+*
+!src
+!models
+!requirements-deploy.txt
+**/__pycache__
+**/*.pyc

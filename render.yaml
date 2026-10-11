@@ -1,0 +1,12 @@
+# Render Blueprint: free Docker web service for the public ADAPT demo.
+# Public mode (set in the Dockerfile): no web search, rate and size limits, no reading stored decisions.
+services:
+  - type: web
+    name: adapt
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeployTrigger: commit

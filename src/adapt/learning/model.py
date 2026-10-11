@@ -18,9 +18,8 @@ from pathlib import Path
 import torch
 from torch import nn
 
-from adapt.engine.scoring import Scored
-from adapt.learning.features import FEATURE_DIM, GRID, criterion_features
-from adapt.schema import Criterion, Option
+from adapt.learning.additive import AdditiveScorer
+from adapt.learning.features import FEATURE_DIM
 
 
 class PreferenceModel(nn.Module):
@@ -67,7 +66,7 @@ class PreferenceModel(nn.Module):
         return model, ckpt["meta"]
 
 
-class LearnedScorer:
+class LearnedScorer(AdditiveScorer):
     """Plugs a PreferenceModel into the decision policy. Runs on CPU: inference is tiny."""
 
     def __init__(self, model: PreferenceModel, version: str):
@@ -79,40 +78,9 @@ class LearnedScorer:
         model, meta = PreferenceModel.load(path)
         return cls(model, meta["model_version"])
 
+    def attr_index(self, name: str) -> int:
+        return self.model.attr_index(name)
+
     @torch.no_grad()
-    def __call__(
-        self, options: list[Option], criteria: list[Criterion], weights: dict[str, float]
-    ) -> list[Scored]:
-        total = sum(weights[c.attribute] for c in criteria)
-        if total <= 0:
-            raise ValueError("at least one criterion needs a positive weight")
-
-        rows: list[tuple[float, float, float]] = []
-        attrs: list[int] = []
-        plan: list[tuple[str, str, int, int]] = []  # (option, attribute, first row, n rows)
-        for c in criteria:
-            f = criterion_features(options, c)
-            idx = self.model.attr_index(c.attribute)
-            for o in options:
-                start = len(rows)
-                new = [f.known[o.id]] if o.id in f.known else f.grid_rows()
-                rows += new
-                attrs += [idx] * len(new)
-                plan.append((o.id, c.attribute, start, len(new)))
-
-        g = self.model.value(torch.tensor(rows, dtype=torch.float32), torch.tensor(attrs)).tolist()
-
-        scored = {o.id: Scored(o.id, 0.0, 0.0) for o in options}
-        for oid, attr, start, n in plan:
-            w = weights[attr] / total
-            vals = g[start : start + n]
-            unit = (min(vals), max(vals))
-            part = (w * unit[0], w * unit[1])
-            s = scored[oid]
-            s.unit[attr] = unit
-            s.contributions[attr] = part
-            s.low += part[0]
-            s.high += part[1]
-            if n == len(GRID):
-                s.missing.append(attr)
-        return list(scored.values())
+    def values(self, rows: list[tuple[float, float, float]], attrs: list[int]) -> list[float]:
+        return self.model.value(torch.tensor(rows, dtype=torch.float32), torch.tensor(attrs)).tolist()
