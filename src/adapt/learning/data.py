@@ -30,12 +30,64 @@ class PairData:
     pairs: torch.Tensor  # [P, 2] (better, worse) option indices
     n_options: int
     n_scenarios: int
+    pair_weight: torch.Tensor | None = None  # [P]; None = every pair counts 1
 
     def to(self, device: torch.device) -> PairData:
         return PairData(
             self.feats.to(device), self.attr.to(device), self.weight.to(device),
             self.row_option.to(device), self.pairs.to(device), self.n_options, self.n_scenarios,
+            None if self.pair_weight is None else self.pair_weight.to(device),
         )
+
+
+def concat(a: PairData, b: PairData) -> PairData:
+    """Both datasets in one, with b's option indices shifted after a's."""
+    def w(d: PairData) -> torch.Tensor:
+        return torch.ones(len(d.pairs)) if d.pair_weight is None else d.pair_weight
+
+    return PairData(
+        torch.cat([a.feats, b.feats]), torch.cat([a.attr, b.attr]), torch.cat([a.weight, b.weight]),
+        torch.cat([a.row_option, b.row_option + a.n_options]), torch.cat([a.pairs, b.pairs + a.n_options]),
+        a.n_options + b.n_options, a.n_scenarios + b.n_scenarios, torch.cat([w(a), w(b)]),
+    )
+
+
+def build_real_pairs(examples, attr_index, scale: float = 1.0) -> PairData:
+    """Real decisions (lifecycle.feedback_data.RealExample): chosen option > each other
+    option that met every hard limit, weighted by the example weight × scale. Decisions
+    with unknown priorities are skipped: there is nothing to attribute the choice to."""
+    from adapt.lifecycle.feedback_data import feasible
+
+    feats, attr, weight, row_option, pairs, pw = [], [], [], [], [], []
+    n_opt = n_scen = 0
+    for ex in examples:
+        f = ex.frame
+        if any(c.weight is None for c in f.criteria) or not f.criteria:
+            continue
+        ok = set(feasible(f))
+        options = [o for o in f.options if o.id in ok]
+        if any(c.attribute not in o.attributes for o in options for c in f.criteria):
+            continue  # incomplete values: features would be guesses
+        total = sum(c.weight for c in f.criteria)  # type: ignore[misc]
+        gid = {o.id: n_opt + i for i, o in enumerate(options)}
+        for c in f.criteria:
+            cf = criterion_features(options, c)
+            for o in options:
+                feats.append(cf.known[o.id] if o.id in cf.known else (0.5, cf.cv, cf.k))
+                attr.append(attr_index(c.attribute))
+                weight.append(c.weight / total)  # type: ignore[operator]
+                row_option.append(gid[o.id])
+        for o in options:
+            if o.id != ex.chosen:
+                pairs.append((gid[ex.chosen], gid[o.id]))
+                pw.append(ex.weight * scale)
+        n_opt += len(options)
+        n_scen += 1
+    return PairData(
+        torch.tensor(feats, dtype=torch.float32).reshape(-1, 3), torch.tensor(attr, dtype=torch.long),
+        torch.tensor(weight, dtype=torch.float32), torch.tensor(row_option, dtype=torch.long),
+        torch.tensor(pairs, dtype=torch.long).reshape(-1, 2), n_opt, n_scen, torch.tensor(pw, dtype=torch.float32),
+    )
 
 
 def true_options(s: Scenario) -> tuple[list[Option], list[Criterion], dict[str, float]]:

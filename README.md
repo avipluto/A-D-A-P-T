@@ -4,7 +4,7 @@ A general-purpose decision-making system that ranks options against a user's own
 goals and constraints, uses cited evidence instead of making up facts, and asks
 or abstains when it doesn't know enough.
 
-Status: **phase 5 done**: a working app (web page + API + feedback store). Decision-frame schema; a policy that applies hard limits,
+Status: **all 6 phases built**: a working app (web page + API + feedback store) with a controlled, gated retraining pipeline. Everything so far is validated on synthetic data only. Decision-frame schema; a policy that applies hard limits,
 scores options, tests missing values against plausible fills, and reports what
 would flip the result; a synthetic benchmark across 9 domains; a small learned
 preference model (PyTorch) that plugs into the same policy; and text extraction (rules, a local Qwen
@@ -15,7 +15,8 @@ model, and a word tagger trained from scratch). Results:
 [phase 3a extraction benchmark](docs/results/phase3a_extraction_benchmark.md),
 [phase 3b local Qwen extractor](docs/results/phase3b_local_llm_extractor.md),
 [phase 3c from-scratch tagger](docs/results/phase3c_from_scratch_tagger.md),
-[phase 4 retrieval](docs/results/phase4_retrieval.md).
+[phase 4 retrieval](docs/results/phase4_retrieval.md),
+[phase 6 lifecycle](docs/results/phase6_lifecycle.md).
 See also [docs/roadmap.md](docs/roadmap.md), [docs/architecture.md](docs/architecture.md)
 and [docs/decisions.md](docs/decisions.md).
 
@@ -97,6 +98,29 @@ Endpoints:
 Decisions and feedback are stored in `D:\adapt-data\feedback\feedback.sqlite` with the request, the frame
 used, the result and all component versions. If the learned scorer or tagger can't load, the API falls back
 to the baseline / rules and `/model-info` lists the fallback.
+
+## Learning from feedback (phase 6)
+
+Nothing learns automatically. Each step is a command you run:
+
+```powershell
+# 1. review: only accepted feedback can ever be used
+D:\adapt-env\Scripts\python.exe scripts/review_feedback.py list
+D:\adapt-env\Scripts\python.exe scripts/review_feedback.py accept <feedback_id> ...
+# 2. export accepted feedback as a versioned dataset (+ manifest) in D:\adapt-data\processed
+D:\adapt-env\Scripts\python.exe scripts/review_feedback.py export
+# 3. train a candidate on synthetic + real preferences
+D:\adapt-env\Scripts\python.exe scripts/train_preference.py --name pref-v2 --real-data D:\adapt-data\processed\real-preferences-<hash>.jsonl
+# 4. regression gate vs production; promote only if it passes AND you ask
+D:\adapt-env\Scripts\python.exe scripts/gate.py --candidate D:\adapt-data\artifacts\models\pref-v2-s0\model.pt --real-data <same file>
+D:\adapt-env\Scripts\python.exe scripts/gate.py --candidate ... --real-data ... --promote --reason "why"
+```
+
+A choice counts as "the chosen option beats the other options that met your limits", weighted by how it
+actually turned out (bad outcomes are skipped; satisfaction alone counts half). Real decisions are split
+80/20 so the gate tests on ones the candidate never saw. Promotion writes
+`D:\adapt-data\artifacts\models\production.json` (read by the API) and appends to `history.jsonl`;
+rolling back means promoting the previous checkpoint again.
 
 ## Looking up current facts (phase 4)
 

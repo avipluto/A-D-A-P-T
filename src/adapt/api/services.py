@@ -50,8 +50,10 @@ class Services:
 def load(scorer_path: Path | None = None, tagger_path: Path | None = None, enable_retrieval: bool = True) -> Services:
     notes: list[str] = []
 
+    from adapt.lifecycle.registry import production_scorer
+
     scorer: Scorer = BASELINE
-    sp = Path(os.environ.get("ADAPT_SCORER_CHECKPOINT", scorer_path or DEFAULT_SCORER))
+    sp = Path(os.environ.get("ADAPT_SCORER_CHECKPOINT", scorer_path or production_scorer(DEFAULT_SCORER)))
     try:
         from adapt.learning.model import LearnedScorer
 

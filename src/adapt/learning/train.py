@@ -60,7 +60,9 @@ def train(model: PreferenceModel, train_d: PairData, val_d: PairData, cfg: Train
             attr = attr.masked_fill(torch.rand_like(attr, dtype=torch.float) < cfg.attr_dropout, 0)
         s = option_scores(model, train_d, attr)
         diff = model.log_scale.exp() * (s[train_d.pairs[:, 0]] - s[train_d.pairs[:, 1]])
-        loss = F.softplus(-diff).mean()  # = −log sigmoid(diff)
+        nll = F.softplus(-diff)  # = −log sigmoid(diff)
+        pw = train_d.pair_weight
+        loss = nll.mean() if pw is None else (nll * pw).sum() / pw.sum()  # real feedback pairs can be weighted
         opt.zero_grad()
         loss.backward()
         opt.step()
