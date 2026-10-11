@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "adapt-api",
+      "runtimeExecutable": "D:\\adapt-env\\Scripts\\python.exe",
+      "runtimeArgs": ["-m", "uvicorn", "--factory", "adapt.api.app:create_app", "--port", "8000"],
+      "port": 8000
+    }
+  ]
+}
