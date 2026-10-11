@@ -13,6 +13,7 @@ import json
 import logging
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 
 from adapt import config
 from adapt.extraction.metrics import evaluate_extractor
@@ -23,7 +24,8 @@ SPLITS = ("test_seen", "test_unseen_domain")
 
 def main() -> None:
     p = argparse.ArgumentParser()
-    p.add_argument("--extractor", choices=("rules", "llm"), default="rules")
+    p.add_argument("--extractor", choices=("rules", "llm", "tagger"), default="rules")
+    p.add_argument("--checkpoint", default=None, help="tagger model.pt for --extractor tagger")
     p.add_argument("--model", default=None, help="Hugging Face model id for --extractor llm")
     p.add_argument("--n", type=int, default=0, help="scenarios per split (0 = all)")
     p.add_argument("--seed", type=int, default=0, help="scenario dataset seed")
@@ -31,6 +33,7 @@ def main() -> None:
     p.add_argument("--prompt", default="v2", help="prompt version for --extractor llm")
     p.add_argument("--splits", default=",".join(SPLITS), help="use 'val' while tuning prompts")
     p.add_argument("--batch-size", type=int, default=8)
+    p.add_argument("--from-cache", default=None, help="raw-outputs .jsonl from an earlier llm run (no GPU)")
     args = p.parse_args()
     logging.basicConfig(level=logging.WARNING)
 
@@ -42,37 +45,72 @@ def main() -> None:
             subset = subset[:: max(1, len(subset) // args.n)][: args.n]  # spread across domains and kinds
         subsets[split] = subset
 
-    if args.extractor == "rules":
-        from adapt.extraction.rules import extract
+    from adapt.extraction.postprocess import clean
 
-        variants = {"rules-v1": extract}
+    ms_per = None
+    if args.extractor == "rules":
+        from adapt.extraction.rules import extract as base
+
+        base_name = "rules-v1"
+        variants = {base_name: base}
+    elif args.extractor == "tagger":
+        from adapt.tagger.extractor import TaggerExtractor
+
+        base = TaggerExtractor.from_checkpoint(Path(args.checkpoint))
+        base_name = base.version
+        variants = {base_name: base}
     else:
         from adapt.extraction.grounding import ground
-        from adapt.extraction.llm import DEFAULT_MODEL, LLMExtractor
+        from adapt.extraction.schema import Extraction
         from adapt.extraction.textgen import render
 
-        # Run the model ONCE (ungrounded), then score raw and grounded outputs from the same
-        # generations, so the grounding ablation costs no extra GPU time.
-        llm = LLMExtractor(args.model or DEFAULT_MODEL, prompt=args.prompt, grounding=False)
+        # The model runs ONCE; raw outputs are saved, and every variant below is scored from
+        # the same generations. --from-cache rescoring needs no GPU at all.
         texts = [render(s, args.text_seed) for sub in subsets.values() for s in sub]
         cache: dict[str, object] = {}
-        t0 = time.perf_counter()
-        for i in range(0, len(texts), args.batch_size):
-            chunk = texts[i : i + args.batch_size]
-            cache.update(zip(chunk, llm.batch(chunk)))
-            print(f"  extracted {min(i + args.batch_size, len(texts))}/{len(texts)}", flush=True)
-        ms_per = (time.perf_counter() - t0) * 1000 / max(1, len(texts))
+        if args.from_cache:
+            for line in Path(args.from_cache).read_text(encoding="utf-8").splitlines():
+                rec = json.loads(line)
+                cache[rec["text"]] = Extraction.model_validate(rec["extraction"]) if rec["ok"] else ValueError(rec["error"])
+            base_name = json.loads(Path(args.from_cache).read_text(encoding="utf-8").splitlines()[0])["model"]
+            missing = [t for t in texts if t not in cache]
+            if missing:
+                raise SystemExit(f"{len(missing)} texts are not in the cache; run without --from-cache")
+        else:
+            from adapt.extraction.llm import DEFAULT_MODEL, LLMExtractor
 
-        def cached(text: str):
+            llm = LLMExtractor(args.model or DEFAULT_MODEL, prompt=args.prompt, grounding=False)
+            base_name = llm.version
+            t0 = time.perf_counter()
+            for i in range(0, len(texts), args.batch_size):
+                chunk = texts[i : i + args.batch_size]
+                cache.update(zip(chunk, llm.batch(chunk)))
+                print(f"  extracted {min(i + args.batch_size, len(texts))}/{len(texts)}", flush=True)
+            ms_per = (time.perf_counter() - t0) * 1000 / max(1, len(texts))
+            raw_path = config.ARTIFACTS_DIR / "eval" / "extraction" / f"{base_name}-raw-{'_'.join(subsets)}-n{args.n}.jsonl"
+            raw_path.parent.mkdir(parents=True, exist_ok=True)
+            with raw_path.open("w", encoding="utf-8") as f:
+                for t, r in cache.items():
+                    ok = not isinstance(r, Exception)
+                    f.write(json.dumps({"model": base_name, "text": t, "ok": ok,
+                                        "extraction": r.model_dump() if ok else None,
+                                        "error": None if ok else str(r)[:500]}) + "\n")
+            print(f"raw outputs saved: {raw_path}")
+
+        def base(text: str):
             r = cache[text]
             if isinstance(r, Exception):
                 raise r
             return r
 
-        def grounded(text: str):
-            return ground(cached(text), text)[0]
+        variants = {base_name: base, f"{base_name}+grounded": lambda t: ground(base(t), t)[0]}
 
-        variants = {llm.version: cached, f"{llm.version}-grounded": grounded}
+    # Post-processing variants, always reported next to the raw extractor.
+    variants |= {
+        f"{base_name}+limits": lambda t: clean(base(t), t, limits=True, names=False)[0],
+        f"{base_name}+names": lambda t: clean(base(t), t, limits=False, names=True)[0],
+        f"{base_name}+clean": lambda t: clean(base(t), t)[0],
+    }
 
     reports: dict[str, dict] = {}
     for name, extractor in variants.items():
@@ -81,7 +119,7 @@ def main() -> None:
         reports[name] = {}
         for split, subset in subsets.items():
             rows, report = evaluate_extractor(subset, extractor, args.text_seed, args.batch_size)
-            if args.extractor == "llm":
+            if ms_per is not None:
                 report["ms_per_text"] = ms_per  # model time, measured once above
             rows.to_csv(out_dir / f"{split}.csv", index=False)
             reports[name][split] = report

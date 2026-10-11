@@ -4,13 +4,17 @@ A general-purpose decision-making system that ranks options against a user's own
 goals and constraints, uses cited evidence instead of making up facts, and asks
 or abstains when it doesn't know enough.
 
-Status: **phase 2 done**. Decision-frame schema; a policy that applies hard limits,
+Status: **phase 3 done**. Decision-frame schema; a policy that applies hard limits,
 scores options, tests missing values against plausible fills, and reports what
-would flip the result; a synthetic benchmark across 9 domains; and a small learned
-preference model (PyTorch) that plugs into the same policy. Results:
+would flip the result; a synthetic benchmark across 9 domains; a small learned
+preference model (PyTorch) that plugs into the same policy; and text extraction (rules, a local Qwen
+model, and a word tagger trained from scratch). Results:
 [phase 1 baseline](docs/results/phase1_baseline.md),
 [phase 2a learned model](docs/results/phase2a_preference_model.md),
-[phase 2b missing values and sensitivity](docs/results/phase2b_missing_values.md).
+[phase 2b missing values and sensitivity](docs/results/phase2b_missing_values.md),
+[phase 3a extraction benchmark](docs/results/phase3a_extraction_benchmark.md),
+[phase 3b local Qwen extractor](docs/results/phase3b_local_llm_extractor.md),
+[phase 3c from-scratch tagger](docs/results/phase3c_from_scratch_tagger.md).
 See also [docs/roadmap.md](docs/roadmap.md), [docs/architecture.md](docs/architecture.md)
 and [docs/decisions.md](docs/decisions.md).
 

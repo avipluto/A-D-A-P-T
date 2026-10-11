@@ -11,6 +11,7 @@ the gold frame stores the matching level (high / medium / low → 3 / 2 / 1).
 from __future__ import annotations
 
 import re
+import string
 
 import numpy as np
 
@@ -119,58 +120,108 @@ def gold_frame(s: Scenario) -> DecisionFrame:
     return s.frame.model_copy(update={"criteria": criteria})
 
 
+# --- rendering ---------------------------------------------------------------
+#
+# Text is built from (text, tag) segments, so the same code produces both the plain text
+# and word-level labels for training a tagger. "O" means "not part of anything to extract".
+#
+#   OPT  option label            ATTR  attribute named next to a value    VAL  that value
+#   FLAGT / FLAGF  yes/no fact (true / false), e.g. "is open source" / "is proprietary"
+#   CMAX / CMIN    attribute in a "more/less is better" sentence
+#   PHIGH / PMED / PLOW  priority phrase
+#   LIMLE / LIMGE  attribute in an "at most / at least" limit      LIMVAL  the limit's value
+#   LIMFT / LIMFF  yes/no limit that must be true / false
+
+TAGS = ("OPT", "ATTR", "VAL", "FLAGT", "FLAGF", "CMAX", "CMIN", "PHIGH", "PMED", "PLOW",
+        "LIMLE", "LIMGE", "LIMVAL", "LIMFT", "LIMFF")
+
+FLAG_LIMIT_SPAN: dict[tuple[str, bool], str] = {
+    ("requires_relocation", False): "require relocation",
+    ("open_source", True): "open source",
+    ("refundable", True): "refundable",
+    ("online", True): "online",
+}
+
+Seg = tuple[str, str]
+
+
+def _fill(template: str, **slots: Seg | list[Seg]) -> list[Seg]:
+    """'a {p} of {v}' with p=("price", "ATTR") -> [("a ", O), ("price", ATTR), (" of ", O), ...]"""
+    out: list[Seg] = []
+    for literal, name, _, _ in string.Formatter().parse(template):
+        if literal:
+            out.append((literal, "O"))
+        if name is not None:
+            v = slots[name]
+            out.extend(v if isinstance(v, list) else [v])
+    return out
+
+
 def _pick(rng: np.random.Generator, xs):
     return xs[int(rng.integers(len(xs)))]
 
 
-def _option_sentence(rng: np.random.Generator, o: Option) -> str:
-    parts, flags = [], []
+def _option_sentence(rng: np.random.Generator, o: Option) -> list[Seg]:
+    parts: list[list[Seg]] = []
+    flags: list[Seg] = []
     for attr, v in o.attributes.items():
         if isinstance(v.value, bool):
             yes, no = FLAG_TEXT[attr]
-            flags.append(yes if v.value else no)
+            flags.append((yes, "FLAGT") if v.value else (no, "FLAGF"))
         else:
             p = _pick(rng, PHRASES.get(attr, (attr.replace("_", " "),)))
-            parts.append(_pick(rng, ("a {p} of {v}", "{p} {v}", "{p} of {v}")).format(p=p, v=fmt_value(attr, v.value)))
+            tmpl = _pick(rng, ("a {p} of {v}", "{p} {v}", "{p} of {v}"))
+            parts.append(_fill(tmpl, p=(p, "ATTR"), v=(fmt_value(attr, v.value), "VAL")))
     order = list(rng.permutation(len(parts)))
     parts = [parts[i] for i in order]
-    body = ", ".join(parts[:-1]) + (" and " if len(parts) > 1 else "") + (parts[-1] if parts else "")
+    body: list[Seg] = []
+    for i, part in enumerate(parts):
+        if i:
+            body.append((" and " if i == len(parts) - 1 else ", ", "O"))
+        body += part
     tmpl = _pick(rng, ("{l} has {b}.", "{l}: {b}.", "With {l} I'd get {b}."))
-    out = tmpl.format(l=o.label, b=body) if parts else ""
+    out = _fill(tmpl, l=(o.label, "OPT"), b=body) if parts else []
     for f in flags:
-        out += f" {o.label} {f}."
-    return out.strip()
+        out += [(" ", "O"), (o.label, "OPT"), (" ", "O"), f, (".", "O")]
+    return out
 
 
-def _criterion_sentence(rng: np.random.Generator, c: Criterion) -> str:
+def _criterion_sentence(rng: np.random.Generator, c: Criterion) -> list[Seg]:
     p = _pick(rng, PHRASES.get(c.attribute, (c.attribute.replace("_", " "),)))
     more = c.direction is Direction.MAXIMIZE
-    dir_clause = _pick(
-        rng,
-        (f"{'Higher' if more else 'Lower'} {p} is better", f"I want {'more' if more else 'less'} {p}"),
-    )
+    attr = (p, "CMAX" if more else "CMIN")
+    out = list(_pick(rng, (
+        [(f"{'Higher' if more else 'Lower'} ", "O"), attr, (" is better", "O")],
+        [(f"I want {'more' if more else 'less'} ", "O"), attr],
+    )))
     if c.weight is None:
-        return dir_clause + "."
+        return out + [(".", "O")]
     lv = level(c.weight)
     lv_clause = _pick(rng, {
         "high": ("it matters most to me", "it's my top priority"),
         "medium": ("it's fairly important", "it matters a fair bit"),
         "low": ("it only matters a little", "it's a nice-to-have"),
     }[lv])
-    return f"{dir_clause}, and {lv_clause}."
+    tag = {"high": "PHIGH", "medium": "PMED", "low": "PLOW"}[lv]
+    return out + [(", and ", "O"), (lv_clause, tag), (".", "O")]
 
 
-def _constraint_sentence(rng: np.random.Generator, c: Constraint) -> str:
+def _constraint_sentence(rng: np.random.Generator, c: Constraint) -> list[Seg]:
     if isinstance(c.value, bool):
-        return FLAG_LIMIT[(c.attribute, c.value)]
+        sentence, span = FLAG_LIMIT[(c.attribute, c.value)], FLAG_LIMIT_SPAN[(c.attribute, c.value)]
+        before, after = sentence.split(span, 1)
+        return [(before, "O"), (span, "LIMFT" if c.value else "LIMFF"), (after, "O")]
     p = _pick(rng, PHRASES.get(c.attribute, (c.attribute.replace("_", " "),)))
-    v = fmt_value(c.attribute, c.value)
+    v = (fmt_value(c.attribute, c.value), "LIMVAL")
     if c.operator is Operator.LE:
-        return _pick(rng, (f"The {p} can't be more than {v}.", f"The {p} must be at most {v}."))
-    return _pick(rng, (f"The {p} has to be at least {v}.", f"I need a {p} of at least {v}."))
+        tmpl = _pick(rng, ("The {p} can't be more than {v}.", "The {p} must be at most {v}."))
+        return _fill(tmpl, p=(p, "LIMLE"), v=v)
+    tmpl = _pick(rng, ("The {p} has to be at least {v}.", "I need a {p} of at least {v}."))
+    return _fill(tmpl, p=(p, "LIMGE"), v=v)
 
 
-def render(s: Scenario, seed: int = 0) -> str:
+def render_tagged(s: Scenario, seed: int = 0) -> tuple[list[str], list[str]]:
+    """Words and their BIO tags ("B-VAL", "I-ATTR", "O", ...). " ".join(words) == render(s, seed)."""
     rng = np.random.default_rng([seed, int(s.truth.scenario_id.rsplit("-", 1)[1])])
     noun = s.frame.situation.split(" between ")[-1].removesuffix(" options.").split(" ", 1)[-1]
     f = s.frame
@@ -178,8 +229,44 @@ def render(s: Scenario, seed: int = 0) -> str:
         intro = _pick(rng, (f"I need to choose a {noun} but haven't shortlisted any yet.", f"Help me think about picking a {noun}."))
     else:
         intro = _pick(rng, (f"I'm choosing between {len(f.options)} {noun} options.", f"Help me pick a {noun}."))
-    options = [_option_sentence(rng, o) for o in f.options]
+    sentences: list[list[Seg]] = [[(intro, "O")]]
+    sentences += [_option_sentence(rng, o) for o in f.options]
     prefs = [_criterion_sentence(rng, c) for c in f.criteria] + [_constraint_sentence(rng, c) for c in f.constraints]
-    prefs = [prefs[i] for i in rng.permutation(len(prefs))]
-    text = " ".join([intro, *options, *prefs]).replace("  ", " ")
-    return re.sub(r"\ba (?=[aeiou])", "an ", text)  # "a ops burden" -> "an ops burden"; never touches labels like "Offer A"
+    sentences += [prefs[i] for i in rng.permutation(len(prefs))]
+
+    # character-level tags and span ids, then words
+    chars: list[str] = []
+    char_tag: list[str] = []
+    char_span: list[int] = []
+    span = 0
+    for i, sent in enumerate(sentences):
+        segs = ([(" ", "O")] if i else []) + sent
+        for text, tag in segs:
+            span += 1
+            chars += text
+            char_tag += [tag] * len(text)
+            char_span += [span] * len(text)
+    text = "".join(chars)
+    words, tags = [], []
+    prev_span = None
+    for m in re.finditer(r"\S+", text):
+        idx = next((j for j in range(m.start(), m.end()) if char_tag[j] != "O"), None)
+        if idx is None:
+            words.append(m.group())
+            tags.append("O")
+            prev_span = None
+            continue
+        bio = "I" if char_span[idx] == prev_span else "B"
+        words.append(m.group())
+        tags.append(f"{bio}-{char_tag[idx]}")
+        prev_span = char_span[idx]
+    # "a ops burden" -> "an ops burden"; only the bare word "a", never labels like "Offer A"
+    for j in range(len(words) - 1):
+        if words[j] == "a" and words[j + 1][:1] in "aeiou" and words[j + 1][:1]:
+            words[j] = "an"
+    return words, tags
+
+
+def render(s: Scenario, seed: int = 0) -> str:
+    return " ".join(render_tagged(s, seed)[0])
+
