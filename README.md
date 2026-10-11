@@ -72,6 +72,17 @@ D:\adapt-env\Scripts\python.exe scripts/evaluate.py --seed 1 --n-per-domain 2000
 Options: `--extension` (plausible-range stretch for missing values, default 2),
 `--give-ranges` (give the engine the true attribute ranges), `--splits val` (for tuning).
 
+## Live demo
+
+**https://adapt-r39y.onrender.com** (free Render instance: sleeps when idle, so the first visit can take
+30–60 s; stored data is wiped on restart).
+
+The public server runs without PyTorch: both models are exported to NumPy (`scripts/export_numpy.py` →
+`models/*.npz`), and tests check the NumPy outputs and decisions match PyTorch. Public mode
+(`ADAPT_PUBLIC=1`, set in the `Dockerfile`) turns web search off and adds rate and size limits.
+`render.yaml` deploys it; every push to `main` redeploys. After promoting a new model, re-run
+`export_numpy.py` and commit `models/`.
+
 ## Run the app (phase 5)
 
 ```powershell
