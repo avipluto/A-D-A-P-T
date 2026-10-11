@@ -43,12 +43,12 @@ class ConstraintIn(BaseModel):
 
 
 class DecisionRequest(BaseModel):
-    situation: str = ""
-    domain_hint: str | None = None  # optional; nothing depends on a fixed list of domains
+    situation: str = Field(default="", max_length=4000)
+    domain_hint: str | None = Field(default=None, max_length=100)  # optional; nothing depends on a fixed list of domains
     goals: list[str] = Field(default_factory=list)
-    options: list[OptionIn] = Field(default_factory=list)
-    criteria: list[CriterionIn] = Field(default_factory=list)
-    constraints: list[ConstraintIn] = Field(default_factory=list)
+    options: list[OptionIn] = Field(default_factory=list, max_length=12)
+    criteria: list[CriterionIn] = Field(default_factory=list, max_length=20)
+    constraints: list[ConstraintIn] = Field(default_factory=list, max_length=20)
     # A frame previously returned by this API (e.g. after extraction), edited by the user.
     frame: DecisionFrame | None = None
     confirmed: bool = False  # the user has checked `frame`

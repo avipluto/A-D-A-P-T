@@ -80,5 +80,7 @@ a { color: var(--accent); }
 .feedback { border-top: 1px solid var(--border); margin-top: 18px; padding-top: 4px; }
 .fb-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 8px 0; }
 .fb-row.wide textarea { flex: 1; min-width: 220px; }
+.notice { color: var(--muted); font-size: .8rem; border-top: 1px solid var(--border); padding-top: 10px; }
+.notice p { margin: 4px 0; }
 .stars button { border: none; background: none; font-size: 1.3rem; padding: 0 2px; color: var(--muted); }
 .stars button.on { color: var(--warn-border); }

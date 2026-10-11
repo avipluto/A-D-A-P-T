@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -25,6 +25,7 @@ from adapt.api.models import (
     ProposalOut,
     ValueIn,
 )
+from adapt.api.limits import PUBLIC_LIMITS, RateLimiter, check_frame_size
 from adapt.api.services import Services, load
 from adapt.api.store import Store
 from adapt.engine import decide
@@ -80,9 +81,13 @@ def confirm(f: DecisionFrame) -> DecisionFrame:
     })
 
 
-def create_app(services: Services | None = None, store: Store | None = None) -> FastAPI:
-    svc = services or load()
+def create_app(services: Services | None = None, store: Store | None = None, public: bool | None = None) -> FastAPI:
+    public = config.PUBLIC_MODE if public is None else public
+    svc = services or load(enable_retrieval=not public)
+    if public:
+        svc.provider = None  # never spend search credits on a public site
     db = store or Store(config.FEEDBACK_DB)
+    limiter = RateLimiter(PUBLIC_LIMITS) if public else None
     app = FastAPI(title="ADAPT", version=svc.versions()["engine"])
     app.add_middleware(  # local frontend dev server only
         CORSMiddleware,
@@ -97,11 +102,18 @@ def create_app(services: Services | None = None, store: Store | None = None) -> 
 
     @app.get("/model-info")
     def model_info() -> dict:
-        return {"versions": svc.versions(), "fallbacks": svc.notes, "store": db.counts(),
+        info = {"versions": svc.versions(), "fallbacks": svc.notes, "public": public,
                 "extraction_requires_confirmation": True}
+        if not public:  # don't advertise usage numbers publicly
+            info["store"] = db.counts()
+        return info
 
     @app.post("/decision", response_model=DecisionResponse)
-    def decision(req: DecisionRequest) -> DecisionResponse:
+    def decision(req: DecisionRequest, request: Request) -> DecisionResponse:
+        if limiter:
+            limiter.check("decision", request)
+        if req.frame is not None:
+            check_frame_size(req.frame)
         versions = svc.versions()
         request_json = req.model_dump(mode="json")
 
@@ -113,6 +125,7 @@ def create_app(services: Services | None = None, store: Store | None = None) -> 
                 kind = "confirmed_text" if req.parent_id else "form"
         elif req.options:
             frame, kind = form_frame(req), "form"
+            check_frame_size(frame)
         else:
             frame = to_frame(svc.extract(req.situation), req.situation, req.domain_hint)
             kind = "text"
@@ -153,13 +166,17 @@ def create_app(services: Services | None = None, store: Store | None = None) -> 
 
     @app.get("/decision/{decision_id}")
     def get_decision(decision_id: str) -> dict:
+        if public:  # other visitors' decisions are not readable on a public site
+            raise HTTPException(404, "not available on the public site")
         d = db.get_decision(decision_id)
         if d is None:
             raise HTTPException(404, "unknown decision_id")
         return {**d, "feedback": db.feedback_for(decision_id)}
 
     @app.post("/feedback", response_model=FeedbackResponse)
-    def feedback(req: FeedbackRequest) -> FeedbackResponse:
+    def feedback(req: FeedbackRequest, request: Request) -> FeedbackResponse:
+        if limiter:
+            limiter.check("feedback", request)
         d = db.get_decision(req.decision_id)
         if d is None:
             raise HTTPException(404, "unknown decision_id")

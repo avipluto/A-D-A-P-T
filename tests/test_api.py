@@ -133,6 +133,39 @@ def test_page_never_uses_innerhtml():
     assert "innerHTML" not in js.replace("never innerHTML", "")
 
 
+def public_client(tmp_path, provider=None):
+    store = Store(tmp_path / "p.sqlite")
+    services = Services(scorer=BASELINE, extract=extract, extractor_version="rules-v1", provider=provider)
+    return TestClient(create_app(services, store, public=True))
+
+
+def test_public_mode_turns_search_off_even_with_a_provider(tmp_path):
+    client = public_client(tmp_path, provider=StaticProvider())
+    info = client.get("/model-info").json()
+    assert info["public"] is True and info["versions"]["retrieval"] is None and "store" not in info
+    r = client.post("/decision", json={**FORM, "lookup": True}).json()
+    assert "retrieval is not configured" in r["message"]
+
+
+def test_public_mode_hides_stored_decisions(tmp_path):
+    client = public_client(tmp_path)
+    did = client.post("/decision", json=FORM).json()["decision_id"]
+    assert client.get(f"/decision/{did}").status_code == 404
+
+
+def test_public_mode_rate_limits_each_visitor(tmp_path):
+    client = public_client(tmp_path)
+    codes = [client.post("/decision", json=FORM).status_code for _ in range(31)]
+    assert codes[:30] == [200] * 30 and codes[30] == 429
+
+
+def test_oversized_requests_are_rejected(tmp_path):
+    client, _ = make_client(tmp_path)
+    assert client.post("/decision", json={"situation": "x" * 4001}).status_code == 422
+    many = {**FORM, "options": [{"label": f"O{i}", "attributes": {"price": i}} for i in range(13)]}
+    assert client.post("/decision", json=many).status_code == 422
+
+
 def test_empty_request_is_rejected(tmp_path):
     client, _ = make_client(tmp_path)
     assert client.post("/decision", json={}).status_code == 422

@@ -10,6 +10,8 @@ import os
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+# Public deployment: web lookup off, rate and size limits on, no reading stored decisions by id.
+PUBLIC_MODE = os.environ.get("ADAPT_PUBLIC", "").lower() in ("1", "true", "yes")
 DATA_DIR = Path(os.environ.get("ADAPT_DATA_DIR", "D:/adapt-data"))
 
 RAW_DIR = DATA_DIR / "raw"

@@ -334,4 +334,6 @@ api("/model-info").then((m) => {
   $("versions").textContent = `engine ${v.engine} · scorer ${v.scorer} · reader ${v.extractor}` +
     (v.retrieval ? ` · search ${v.retrieval}` : " · search off") + (m.fallbacks.length ? " · fallback in use" : "");
   if (m.fallbacks.length) $("versions").title = m.fallbacks.join("\n");
+  if (!v.retrieval) $("lookup").closest("label").hidden = true;  // search is off (always on the public site)
+  if (m.public) $("storage-note").textContent = "On this free demo server, stored data is wiped whenever the server restarts.";
 }).catch(() => { $("versions").textContent = "API not reachable"; });
