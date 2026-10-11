@@ -15,7 +15,8 @@ DATA_DIR = Path(os.environ.get("ADAPT_DATA_DIR", "D:/adapt-data"))
 RAW_DIR = DATA_DIR / "raw"
 PROCESSED_DIR = DATA_DIR / "processed"
 EVALUATION_DIR = DATA_DIR / "evaluation"  # never mixed with training data
-FEEDBACK_DB = DATA_DIR / "feedback" / "feedback.sqlite"  # production feedback, reviewed before use
+# production feedback, reviewed before use; ADAPT_FEEDBACK_DB points tests and demos elsewhere
+FEEDBACK_DB = Path(os.environ.get("ADAPT_FEEDBACK_DB", DATA_DIR / "feedback" / "feedback.sqlite"))
 ARTIFACTS_DIR = DATA_DIR / "artifacts"  # checkpoints, tokenizers, run outputs
 
 

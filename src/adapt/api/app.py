@@ -10,8 +10,11 @@ Form input (options / criteria / constraints) is decided straight away.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from adapt import config
 from adapt.api.models import (
@@ -168,4 +171,6 @@ def create_app(services: Services | None = None, store: Store | None = None) -> 
                                rating=req.rating, details=req.details, notes=req.notes)
         return FeedbackResponse(feedback_id=fid)
 
+    # The web page (no build step). Mounted last so the API routes above take precedence.
+    app.mount("/", StaticFiles(directory=Path(__file__).parent / "static", html=True), name="ui")
     return app

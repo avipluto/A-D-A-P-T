@@ -42,6 +42,15 @@ test splits of the 18,000-scenario benchmark. The engine's default stays the
 dependency-free baseline; deployments (the API in phase 5) load the learned scorer
 and fall back to the baseline if it's unavailable.
 
+## D7 — Frontend: no-build page served by the API, instead of React (2026-10-11, revises D3)
+
+React + TypeScript needs `node_modules` (~150 MB, tens of thousands of files) inside the project, which
+is in a OneDrive-synced folder. The UI is a single page, so plain HTML + CSS + JavaScript modules served by
+FastAPI at `/` does the job with no build step and one command to run. The page content follows D3
+(editable frame, provenance labels, ranking with ranges, what would flip it, questions, citations, and
+feedback that separates satisfaction from outcome). All server and web text is inserted with
+`textContent`, never `innerHTML`.
+
 ## D4 — Python 3.11 (2026-10-10)
 
 The 3.11 install is healthy and every library supports it. The 3.13 install

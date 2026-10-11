@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ADAPT</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">ADAPT <span class="sub">decisions that respect your limits</span></div>
+    <div id="versions" class="versions" aria-live="polite"></div>
+  </header>
+
+  <main>
+    <!-- 1. input -->
+    <section class="card" id="input-card">
+      <div class="tabs" role="tablist">
+        <button role="tab" class="tab active" data-tab="text" aria-selected="true">Describe it</button>
+        <button role="tab" class="tab" data-tab="form" aria-selected="false">Fill in a form</button>
+      </div>
+      <div id="tab-text" class="tab-panel">
+        <label for="situation" class="label">Describe your decision: the options, what matters, and any hard limits.</label>
+        <textarea id="situation" rows="6" placeholder="Help me pick a laptop. Laptop A has a price of ₹72,000, battery life of 9 hours and weight of 1.4 kg. Laptop B: price ₹58,000, battery life 6 hours and weight 1.9 kg. Lower price is better, and it matters most to me. I want more battery life, and it matters a fair bit. The weight can't be more than 2 kg."></textarea>
+        <div class="row">
+          <button id="extract" class="primary">Read my description</button>
+          <span class="hint">ADAPT will show what it understood before deciding anything.</span>
+        </div>
+      </div>
+      <div id="tab-form" class="tab-panel" hidden>
+        <p class="hint">Start with an empty table: add options, attributes, what matters and your limits below.</p>
+        <button id="blank" class="primary">Start a blank decision</button>
+      </div>
+    </section>
+
+    <!-- 2. review / edit the frame -->
+    <section class="card" id="frame-card" hidden>
+      <div id="confirm-banner" class="banner warn" hidden>
+        <strong>Check this before ADAPT decides.</strong> These were read from your text and may be wrong.
+        Fix anything incorrect: edited values count as stated by you.
+      </div>
+      <h2>Options</h2>
+      <div class="table-wrap"><table id="options-table" class="grid"></table></div>
+      <div class="row">
+        <button id="add-option">+ Option</button>
+        <button id="add-attribute">+ Attribute</button>
+        <span class="legend">
+          <span class="badge stated">stated</span><span class="badge inferred">inferred</span>
+          <span class="badge retrieved">retrieved</span><span class="badge assumed">assumed</span>
+        </span>
+      </div>
+
+      <div class="two-col">
+        <div>
+          <h2>What matters</h2>
+          <div id="criteria"></div>
+          <button id="add-criterion">+ Criterion</button>
+        </div>
+        <div>
+          <h2>Hard limits</h2>
+          <p class="hint">Options that break a limit are excluded, however good they are otherwise.</p>
+          <div id="constraints"></div>
+          <button id="add-constraint">+ Limit</button>
+        </div>
+      </div>
+
+      <div class="row decide-row">
+        <label class="check"><input type="checkbox" id="lookup"> Look up missing facts on the web</label>
+        <button id="decide" class="primary">Decide</button>
+      </div>
+    </section>
+
+    <!-- 3. result -->
+    <section class="card" id="result-card" hidden>
+      <div id="headline" class="headline"></div>
+      <p id="reason" class="reason"></p>
+      <div id="fragile" class="banner warn" hidden></div>
+      <ul id="questions" class="questions"></ul>
+      <ul id="notes" class="notes"></ul>
+      <div id="ranking-wrap" hidden><h2>Ranking</h2><div id="ranking"></div>
+        <p class="hint">Scores compare these options with each other; they are not probabilities. A range means some
+          values are missing or assumed.</p></div>
+      <div id="excluded-wrap" hidden><h2>Excluded by a hard limit</h2><ul id="excluded"></ul></div>
+      <div id="lookups-wrap" hidden><h2>Found on the web</h2><div id="lookups"></div></div>
+      <div id="citations-wrap" hidden><h2>Sources used</h2><ul id="citations" class="citations"></ul></div>
+
+      <div class="feedback">
+        <h2>Feedback</h2>
+        <div class="fb-row">
+          <span>Did you like this recommendation?</span>
+          <span class="stars" data-kind="satisfaction"></span>
+        </div>
+        <div class="fb-row">
+          <span>Later: how did your choice actually turn out?</span>
+          <span class="stars" data-kind="outcome"></span>
+        </div>
+        <div class="fb-row">
+          <label for="fb-choice">Which option did you choose?</label>
+          <select id="fb-choice"></select>
+        </div>
+        <div class="fb-row wide">
+          <textarea id="fb-notes" rows="2" placeholder="Anything wrong or missing? (saved as a correction)"></textarea>
+          <button id="fb-correction">Send correction</button>
+        </div>
+        <p id="fb-status" class="hint" aria-live="polite"></p>
+        <p class="hint">Feedback is saved for review only. It never changes ADAPT's models automatically.</p>
+      </div>
+    </section>
+
+    <div id="error" class="banner error" hidden role="alert"></div>
+  </main>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

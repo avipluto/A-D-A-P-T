@@ -6,6 +6,13 @@
       "runtimeExecutable": "D:\\adapt-env\\Scripts\\python.exe",
       "runtimeArgs": ["-m", "uvicorn", "--factory", "adapt.api.app:create_app", "--port", "8000"],
       "port": 8000
+    },
+    {
+      "name": "adapt-api-test",
+      "runtimeExecutable": "D:\\adapt-env\\Scripts\\python.exe",
+      "runtimeArgs": ["-m", "uvicorn", "--factory", "adapt.api.app:create_app", "--port", "8001"],
+      "env": { "ADAPT_FEEDBACK_DB": "D:\\adapt-data\\feedback\\test-feedback.sqlite" },
+      "port": 8001
     }
   ]
 }

@@ -115,6 +115,24 @@ def test_feedback_keeps_satisfaction_and_outcome_apart_and_pending(tmp_path):
     assert [(r["kind"], r["rating"], r["review_status"]) for r in rows] == [("satisfaction", 5, "pending"), ("outcome", 2, "pending")]
 
 
+def test_web_page_is_served_and_does_not_hide_the_api(tmp_path):
+    client, _ = make_client(tmp_path)
+    page = client.get("/")
+    assert page.status_code == 200 and "<title>ADAPT</title>" in page.text
+    assert client.get("/app.js").status_code == 200
+    assert client.get("/health").json() == {"status": "ok"}  # API routes still win over the static mount
+
+
+def test_page_never_uses_innerhtml():
+    # web quotes and extracted text must be inserted as text, never as markup
+    from pathlib import Path
+
+    import adapt.api
+
+    js = (Path(adapt.api.__file__).parent / "static" / "app.js").read_text(encoding="utf-8")
+    assert "innerHTML" not in js.replace("never innerHTML", "")
+
+
 def test_empty_request_is_rejected(tmp_path):
     client, _ = make_client(tmp_path)
     assert client.post("/decision", json={}).status_code == 422

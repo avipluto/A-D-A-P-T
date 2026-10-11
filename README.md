@@ -4,7 +4,7 @@ A general-purpose decision-making system that ranks options against a user's own
 goals and constraints, uses cited evidence instead of making up facts, and asks
 or abstains when it doesn't know enough.
 
-Status: **phase 5a done** (API and feedback store; frontend next). Decision-frame schema; a policy that applies hard limits,
+Status: **phase 5 done**: a working app (web page + API + feedback store). Decision-frame schema; a policy that applies hard limits,
 scores options, tests missing values against plausible fills, and reports what
 would flip the result; a synthetic benchmark across 9 domains; a small learned
 preference model (PyTorch) that plugs into the same policy; and text extraction (rules, a local Qwen
@@ -71,13 +71,20 @@ D:\adapt-env\Scripts\python.exe scripts/evaluate.py --seed 1 --n-per-domain 2000
 Options: `--extension` (plausible-range stretch for missing values, default 2),
 `--give-ranges` (give the engine the true attribute ranges), `--splits val` (for tuning).
 
-## API (phase 5a)
+## Run the app (phase 5)
 
 ```powershell
 D:\adapt-env\Scripts\python.exe -m uvicorn --factory adapt.api.app:create_app --port 8000
 ```
 
-Interactive docs at http://localhost:8000/docs. Endpoints:
+Open **http://localhost:8000**: describe a decision (or fill in a form), check and correct what ADAPT
+understood, then see the recommendation, close-call warnings, what would flip it, questions, sources,
+and give feedback. API docs are at http://localhost:8000/docs.
+
+To try things without touching the real feedback database, point it elsewhere first:
+`$env:ADAPT_FEEDBACK_DB = "D:\adapt-data\feedback\test-feedback.sqlite"`.
+
+Endpoints:
 
 | Endpoint | What it does |
 |---|---|
