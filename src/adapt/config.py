@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = Path(os.environ.get("ADAPT_DATA_DIR", "D:/adapt-data"))
 
 RAW_DIR = DATA_DIR / "raw"

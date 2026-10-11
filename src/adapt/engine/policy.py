@@ -24,7 +24,7 @@ from adapt.engine.constraints import Status, check, describe
 from adapt.engine.missing import Slot, missing_slots, robust_winners
 from adapt.engine.scoring import BASELINE, Scorer, dominant_option
 from adapt.engine.sensitivity import FRAGILE, Flip, weight_flips
-from adapt.schema import DecisionFrame
+from adapt.schema import DecisionFrame, Provenance
 
 ENGINE_VERSION = "policy-0.2.0"
 NEAR_TIE = 0.02  # score gap below which a recommendation is flagged as a near tie
@@ -60,6 +60,31 @@ class Excluded(BaseModel):
     failed: list[str]
 
 
+class Citation(BaseModel):
+    """A looked-up fact the decision used, so it can be shown and checked."""
+
+    option_id: str
+    attribute: str
+    value: object
+    url: str
+    title: str | None = None
+    published_at: str | None = None
+    retrieved_at: str
+
+
+def _citations(frame: DecisionFrame) -> list[Citation]:
+    return [
+        Citation(
+            option_id=o.id, attribute=a, value=v.value, url=str(v.source.url), title=v.source.title,
+            published_at=v.source.published_at.date().isoformat() if v.source.published_at else None,
+            retrieved_at=v.source.retrieved_at.date().isoformat(),
+        )
+        for o in frame.options
+        for a, v in o.attributes.items()
+        if v.provenance is Provenance.RETRIEVED and v.source is not None
+    ]
+
+
 class DecisionResult(BaseModel):
     outcome: Outcome
     recommended: str | None = None
@@ -72,6 +97,7 @@ class DecisionResult(BaseModel):
     sensitivity: list[Flip] = Field(default_factory=list)
     fragile: bool = False  # a small change in priorities would change the recommendation
     notes: list[str] = Field(default_factory=list)  # assumptions made and what would flip the result
+    citations: list[Citation] = Field(default_factory=list)  # every retrieved fact in the frame, with its source
     engine_version: str = ENGINE_VERSION
     scorer_version: str = BASELINE.version
 
@@ -106,7 +132,8 @@ def decide(
         o.id: [ch.constraint.attribute for ch in checks[o.id] if ch.status is Status.UNKNOWN]
         for o in candidates
     }
-    common = dict(excluded=excluded, assumptions=assumptions, scorer_version=scorer.version)
+    common = dict(excluded=excluded, assumptions=assumptions, scorer_version=scorer.version,
+                  citations=_citations(frame))
 
     if not candidates:
         return DecisionResult(
